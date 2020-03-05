@@ -6,9 +6,15 @@ metadata:
     kubernetes.io/ingress.class: "kestrel"
 spec:
   rules:
-  - http:
+  - host: foo.bar.com
+    http:
       paths:
-      - path: /
-        backend:
+      - backend:
+          serviceName: hello-aspnetcore-service
+          servicePort: 8081
+  - host: bar.foo.com
+    http:
+      paths:
+      - backend:
           serviceName: hello-aspnetcore-service
           servicePort: 8081
