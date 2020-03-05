@@ -31,16 +31,19 @@ namespace Ingress.Controller
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Started ingress hosted service!!!");
             try
             {
-                _klient = new Kubernetes(_config);
-                var result = _klient.ListNamespacedIngressWithHttpMessagesAsync("default", watch: true);
+                _logger.LogInformation($"Using config: {_config.Host}, {_config.AccessToken}");
 
+                _klient = new Kubernetes(_config);
+                var result = await _klient.ListNamespacedIngressWithHttpMessagesAsync("ingress-test", watch: true);
                 _watcher = result.Watch((Action<WatchEventType, Extensionsv1beta1Ingress>)(async (type, item) =>
                 {
+                    _logger.LogInformation("Received event");
+
                     if (type == WatchEventType.Added)
                     {
                         _logger.LogInformation("Added event");
@@ -63,9 +66,9 @@ namespace Ingress.Controller
                         // Error, close the process?
                     }
                 }));
-                
 
-                var result2 = _klient.ListNamespacedEndpointsWithHttpMessagesAsync("default", watch: true);
+
+                var result2 = await _klient.ListNamespacedEndpointsWithHttpMessagesAsync("ingress-test", watch: true);
                 _endpointWatcher = result2.Watch((Action<WatchEventType, V1EndpointsList>)((type, item) =>
                 {
                     _logger.LogInformation($"Got endpoints {type.ToString()}");
@@ -85,11 +88,18 @@ namespace Ingress.Controller
                 }));
 
             }
+            catch (Microsoft.Rest.HttpOperationException httpOperationException)
+            {
+                var phase = httpOperationException.Response.ReasonPhrase;
+                //Bad Request 
+                var content = httpOperationException.Response.Content;
+                // {"error":{"code":"InvalidRequest","message":"Invalid dataset. This API can only be called on a DirectQuery dataset"}}
+                _logger.LogError($"Call failed {phase}. Response message '{content}'");
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex.Message);
+                _logger.LogError($"Call failed {ex}");
             }
-            return Task.CompletedTask;
         }
 
         private void UpdateServiceToEndpointDictionary(V1EndpointsList item)
@@ -166,12 +176,12 @@ namespace Ingress.Controller
                             _logger.LogInformation("querying for endpoints");
                             var endpoints = await _klient.ListNamespacedEndpointsAsync(namespaceParameter: ingress.Metadata.NamespaceProperty);
                             var service = await _klient.ReadNamespacedServiceAsync(path.Backend.ServiceName, ingress.Metadata.NamespaceProperty);
-                            
+
                             // TODO can there be multiple ports here?
                             var targetPort = service.Spec.Ports.Where(e => e.Port == path.Backend.ServicePort).Select(e => e.TargetPort).Single();
 
                             UpdateServiceToEndpointDictionary(endpoints);
-                            lock(_sync)
+                            lock (_sync)
                             {
                                 // From what it looks like, scheme is always http unless the tls section is specified, 
                                 ipMappingList.Add(new IpMapping { IpAddresses = _serviceToIp[path.Backend.ServiceName], Port = targetPort, Path = path.Path, Scheme = "http" });
@@ -180,8 +190,8 @@ namespace Ingress.Controller
                     }
                 }
             }
-            
-            var json = new IngressBindingOptions() {IpMappings = ipMappingList};
+
+            var json = new IngressBindingOptions() { IpMappings = ipMappingList };
             await JsonSerializer.SerializeAsync(fileStream, json, typeof(IngressBindingOptions));
             fileStream.Close();
         }

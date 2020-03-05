@@ -67,7 +67,7 @@ namespace Ingress
             {
                 if (_endpoints == null)
                 {
-                   UpdateEndpoints();
+                    UpdateEndpoints();
                 }
             }
         }
@@ -105,7 +105,7 @@ namespace Ingress
                 foreach (var ip in mapping.IpAddresses)
                 {
                     ipEndpoints.Add(new IPEndPoint(IPAddress.Parse(ip), mapping.Port));
-                    _logger.LogInformation(ip.ToString());
+                    _logger.LogInformation($"{mapping.Scheme}://{ip}:{mapping.Port}");
                 }
 
                 var loadBalanceSelector = new LoadBalananceSelector(ipEndpoints);
